@@ -159,7 +159,6 @@ void Init()
 		}
 	}
 
-	injector::MakeCALL(0x005BBE5B, GetTrackPositionMarker, true);
 	injector::MakeCALL(0x007A9A03, GetTrackPositionMarker, true);
 	injector::MakeCALL(0x0083F23D, GetTrackPositionMarker, true);
 	injector::MakeCALL(0x0083F25E, GetTrackPositionMarker, true);
