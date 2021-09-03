@@ -1,6 +1,9 @@
 #include "pch.h"
 #include "IniReader.h"
 #include "injector/injector.hpp"
+#include <vector>
+#include "structs.h"
+#include <string>
 
 float* WorldLighting = (float*)0x00A6C218;
 float* CarZ = (float*)0x009F9AE8;
@@ -8,35 +11,9 @@ const float DefaultCarZ = 0.275f;
 float* ShadowZ = (float*)0x007BE7E2;
 const float DefaultShadowZ = -0.25;
 
-struct Position
-{
-	char* IniSection;
-	char* Name;
-	int Presset;
-
-	float X;
-	float Y;
-	float Z;
-	float CarZ;
-	int Rotation;
-	bool Reflection;
-	float WorldLighting;
-};
-
 Position Positions[10];
-
-struct TrackPositionMarker
-{
-	TrackPositionMarker* Prev;
-	TrackPositionMarker* Next;
-	int Hash;
-	int blank;
-	float X;
-	float Y;
-	float Z;
-	float W;
-	unsigned short Rotation;
-};
+VectorW CustomPlatformSettings;
+std::string CustomPlatformPath;
 
 void ToggleReflections(bool enabled)
 {
@@ -44,6 +21,11 @@ void ToggleReflections(bool enabled)
 }
 
 auto Game_GetTrackPositionMarker = (TrackPositionMarker * (__cdecl*)(const char* a1, int a2))0x0079DB20;
+auto Game_StringHash = (int(__cdecl*)(const char*))0x471050;
+auto Game_eViewPlatInterface_Render = (int(__thiscall*)(void*, void*, RotPosMatrix*, RotPosMatrix*, int, int, int))0x00729320;
+auto Game_eModel_Init = (void(__thiscall*)(void*, int))0x0055E7E0;
+auto Game_LoadResourceFile = (void(__cdecl*)(const char* path, int type, int, int, int, int, int))0x006B5980;
+auto Game_FindResourceFile = (int* (__cdecl*)(const char* path))0x006A8570;
 
 bool CustomRotation;
 TrackPositionMarker marker;
@@ -136,6 +118,114 @@ void __declspec(naked) CarRotationCave1()
 	}
 }
 
+std::vector<void*> GarageParts;
+bool GarageInit = false;
+RotPosMatrix m;
+RotPosMatrix light;
+
+struct PartEntry
+{
+	int hash;
+	int* ptr;
+};
+
+void InitCustomGarage()
+{
+	if (!GarageInit)
+	{
+		int* recource = Game_FindResourceFile(CustomPlatformPath.c_str());
+		if (recource)
+		{
+			int* geometry = (int*)recource[0xF];
+			int src = 0;
+			while (geometry[src] != 0x134003) src++;
+
+			int size = geometry[src + 1] / 8;
+			auto parts = (PartEntry*)(geometry + src + 2);
+
+			for (int i = 0; i < size; i++)
+			{
+				auto part = parts[i];
+				char* name = (char*)part.ptr + 0xA0;
+
+				int* model = new int[6];
+				Game_eModel_Init(model, Game_StringHash(name));
+				GarageParts.push_back(model);
+			}
+
+			m.x.x = 1.0f;
+			m.x.y = 0.0f;
+			m.x.z = 0.0f;
+			m.x.w = 0.0f;
+
+			m.y.x = 0.0f;
+			m.y.y = 1.0f;
+			m.y.z = 0.0f;
+			m.y.w = 0.0f;
+
+			m.z.x = 0.0f;
+			m.z.y = 0.0f;
+			m.z.z = 1.0f;
+			m.z.w = 0.0f;
+
+			light = m;
+			light.w.x = 0.0f;
+			light.w.y = 0.0f;
+			light.w.z = 0.0f;
+			light.w.w = 0.0f;
+
+			m.w = CustomPlatformSettings;
+			GarageInit = true;
+		}
+	}
+}
+
+void __stdcall DrawGarage()
+{
+	InitCustomGarage();
+
+	if (GarageInit)
+	{
+		for (auto model : GarageParts)
+		{
+			Game_eViewPlatInterface_Render((void*)0x00B4AF90, model, &m, &light, 0, 0, 0);
+		}
+	}
+}
+
+void __declspec(naked) GarageCave()
+{
+	static constexpr auto hExit = 0x007E0F09;
+
+	__asm
+	{
+		pushad;
+		call DrawGarage;
+		popad;
+
+		and esp, -0x10;
+		sub esp, 0x64;
+		jmp hExit;
+	}
+}
+
+void __stdcall GarageLoad()
+{
+	Game_LoadResourceFile(CustomPlatformPath.c_str(), 6, 0, 0, 0, 0, 0);
+}
+
+void __declspec(naked) GarageLoadCave()
+{
+	__asm
+	{
+		pushad;
+		call GarageLoad;
+		popad;
+
+		ret;
+	}
+}
+
 void Init()
 {
 	InitGamePositions();
@@ -149,13 +239,23 @@ void Init()
 			char pressetBuf[24];
 			sprintf(pressetBuf, "PRESSET_%d", pos.Presset);
 
-			pos.Rotation = iniReader.ReadInteger(pressetBuf, (char*)"R", -1);
 			pos.X = iniReader.ReadFloat(pressetBuf, (char*)"X", 0);
 			pos.Y = iniReader.ReadFloat(pressetBuf, (char*)"Y", 0);
 			pos.Z = iniReader.ReadFloat(pressetBuf, (char*)"Z", 0);
 			pos.CarZ = iniReader.ReadFloat(pressetBuf, (char*)"CarZ", 0);
+			float rotation = iniReader.ReadFloat(pressetBuf, (char*)"CarR", -1);
+			pos.Rotation = -1;
 			pos.Reflection = iniReader.ReadInteger(pressetBuf, (char*)"CarReflection", 1) == 1;
 			pos.WorldLighting = iniReader.ReadFloat(pressetBuf, (char*)"WorldLighting", 2.0f);
+
+			if (rotation >= 0)
+			{
+				if (rotation > 360.0f)
+				{
+					rotation = rotation - floor(rotation / 360) * 360.0f;
+				}
+				pos.Rotation = rotation / 360.0f * 65535.0f;
+			}
 		}
 	}
 
@@ -166,11 +266,22 @@ void Init()
 	injector::MakeJMP(0x0086A18F, CarRotationCave1, true);
 	injector::MakeJMP(0x0086A187, CarRotationCave2, true);
 
-	int loadMapInFE = iniReader.ReadInteger("GENERAL", "LoadMapInFE", 0);
-	if (loadMapInFE == 1)
+	bool loadMapInFE = iniReader.ReadInteger("GENERAL", "LoadMapInFE", 0) == 1;
+	if (loadMapInFE)
 	{
 		injector::WriteMemory(0x006B7E48 + 1, "TRACKS\\STREAML5RA.BUN", true);
 		injector::WriteMemory(0x006B7E08 + 1, "TRACKS\\L5RA.BUN", true);
+	}
+
+	CustomPlatformPath = iniReader.ReadString("CUSTOM_PLATFORM", "Path", std::string(""));
+	if (CustomPlatformPath.size() > 0)
+	{
+		injector::MakeJMP(0x007E0F03, GarageCave, true);
+		injector::MakeJMP(0x007B154A, GarageLoadCave, true);
+		CustomPlatformSettings.x = iniReader.ReadFloat((char*)"CUSTOM_PLATFORM", (char*)"X", 0.0f);
+		CustomPlatformSettings.y = iniReader.ReadFloat((char*)"CUSTOM_PLATFORM", (char*)"Y", 0.0f);
+		CustomPlatformSettings.z = iniReader.ReadFloat((char*)"CUSTOM_PLATFORM", (char*)"Z", 0.0f);
+		CustomPlatformSettings.w = 1.0f;
 	}
 }
 

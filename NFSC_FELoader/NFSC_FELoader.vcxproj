@@ -168,6 +168,7 @@ copy "$(TargetDir)*.pdb" "E:\Games\Need for Speed - Carbon\scripts"  /y</Command
   <ItemGroup>
     <ClInclude Include="framework.h" />
     <ClInclude Include="pch.h" />
+    <ClInclude Include="structs.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="dllmain.cpp" />
