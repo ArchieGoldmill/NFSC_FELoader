@@ -1,10 +1,12 @@
-#include "pch.h"
 #include "IniReader.h"
 #include "injector/injector.hpp"
 #include <vector>
 #include "structs.h"
 #include <string>
 
+const char* VERSION = "NFSC - FE Loader 2.1";
+
+int* GameState = (int*)0x00A99BBC;
 float* WorldLighting = (float*)0x00A6C218;
 float* CarZ = (float*)0x009F9AE8;
 const float DefaultCarZ = 0.275f;
@@ -26,6 +28,7 @@ auto Game_eViewPlatInterface_Render = (int(__thiscall*)(void*, void*, RotPosMatr
 auto Game_eModel_Init = (void(__thiscall*)(void*, int))0x0055E7E0;
 auto Game_LoadResourceFile = (void(__cdecl*)(const char* path, int type, int, int, int, int, int))0x006B5980;
 auto Game_FindResourceFile = (int* (__cdecl*)(const char* path))0x006A8570;
+auto Game_sub_79AFA0 = (int(__thiscall*)(int, int, int))0x0079AFA0;
 
 bool CustomRotation;
 TrackPositionMarker marker;
@@ -193,20 +196,14 @@ void __stdcall DrawGarage()
 	}
 }
 
-void __declspec(naked) GarageCave()
+void _fastcall DrawGarageHook(int a1, int param, int a2, int a3)
 {
-	static constexpr auto hExit = 0x007E0F09;
-
-	__asm
+	if (*GameState == 3)
 	{
-		pushad;
-		call DrawGarage;
-		popad;
-
-		and esp, -0x10;
-		sub esp, 0x64;
-		jmp hExit;
+		DrawGarage();
 	}
+
+	Game_sub_79AFA0(a1, a2, a3);
 }
 
 void __stdcall GarageLoad()
@@ -224,6 +221,23 @@ void __declspec(naked) GarageLoadCave()
 
 		ret;
 	}
+}
+
+bool IsFileExist(std::string path)
+{
+	char buffer[MAX_PATH];
+	HMODULE hm = NULL;
+	GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, NULL, &hm);
+	GetModuleFileNameA(hm, buffer, sizeof(buffer));
+
+	std::string modulePath = buffer;
+	path = modulePath.substr(0, modulePath.rfind('\\') + 1) + path;
+
+	std::ifstream f(path.c_str());
+	bool isGood = f.good();
+	f.close();
+
+	return isGood;
 }
 
 void Init()
@@ -267,21 +281,31 @@ void Init()
 	injector::MakeJMP(0x0086A187, CarRotationCave2, true);
 
 	bool loadMapInFE = iniReader.ReadInteger("GENERAL", "LoadMapInFE", 0) == 1;
+
 	if (loadMapInFE)
 	{
 		injector::WriteMemory(0x006B7E48 + 1, "TRACKS\\STREAML5RA.BUN", true);
 		injector::WriteMemory(0x006B7E08 + 1, "TRACKS\\L5RA.BUN", true);
 	}
 
+	bool LoadCustomPlatform = iniReader.ReadInteger("GENERAL", "LoadCustomPlatform", 0) == 1;
 	CustomPlatformPath = iniReader.ReadString("CUSTOM_PLATFORM", "Path", std::string(""));
-	if (CustomPlatformPath.size() > 0)
+
+	if (CustomPlatformPath.size() > 0 && LoadCustomPlatform)
 	{
-		injector::MakeJMP(0x007E0F03, GarageCave, true);
-		injector::MakeJMP(0x007B154A, GarageLoadCave, true);
-		CustomPlatformSettings.x = iniReader.ReadFloat((char*)"CUSTOM_PLATFORM", (char*)"X", 0.0f);
-		CustomPlatformSettings.y = iniReader.ReadFloat((char*)"CUSTOM_PLATFORM", (char*)"Y", 0.0f);
-		CustomPlatformSettings.z = iniReader.ReadFloat((char*)"CUSTOM_PLATFORM", (char*)"Z", 0.0f);
-		CustomPlatformSettings.w = 1.0f;
+		if (IsFileExist(CustomPlatformPath))
+		{
+			injector::MakeCALL(0x0072E63A, DrawGarageHook, true);
+			injector::MakeJMP(0x007B154A, GarageLoadCave, true);
+			CustomPlatformSettings.x = iniReader.ReadFloat((char*)"CUSTOM_PLATFORM", (char*)"X", 0.0f);
+			CustomPlatformSettings.y = iniReader.ReadFloat((char*)"CUSTOM_PLATFORM", (char*)"Y", 0.0f);
+			CustomPlatformSettings.z = iniReader.ReadFloat((char*)"CUSTOM_PLATFORM", (char*)"Z", 0.0f);
+			CustomPlatformSettings.w = 1.0f;
+		}
+		else
+		{
+			MessageBoxA(NULL, "Custom platform geometry not found!", VERSION, MB_ICONERROR);
+		}
 	}
 }
 
@@ -301,7 +325,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD  ul_reason_for_call, LPVOID lpReser
 		}
 		else
 		{
-			MessageBoxA(NULL, "This .exe is not supported.\nPlease use v1.4 English nfsc.exe (6,88 MB (7.217.152 bytes)).", "NFSC - FE Loader 1.0", MB_ICONERROR);
+			MessageBoxA(NULL, "This .exe is not supported.\nPlease use v1.4 English nfsc.exe (6,88 MB (7.217.152 bytes)).", VERSION, MB_ICONERROR);
 			return FALSE;
 		}
 	}
