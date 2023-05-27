@@ -1,34 +1,73 @@
-#include "IniReader.h"
-#include "injector/injector.hpp"
-#include <vector>
-#include "structs.h"
 #include <string>
+#include <D3dx9math.h>
+#include <vector>
 
-const char* VERSION = "NFSC - FE Loader 2.1";
+#include "IniReader/IniReader.h"
+#include "Injector/injector.hpp"
 
-int* GameState = (int*)0x00A99BBC;
-float* WorldLighting = (float*)0x00A6C218;
-float* CarZ = (float*)0x009F9AE8;
+#pragma comment(lib, "d3d9.lib")
+#pragma comment(lib, "d3dx9.lib")
+
+struct Position
+{
+	const char* IniSection;
+	const char* Name;
+	int Presset;
+
+	float X;
+	float Y;
+	float Z;
+	float CarZ;
+	int Rotation;
+	bool Reflection;
+	bool CustomPlatform;
+};
+
+struct TrackPositionMarker
+{
+	TrackPositionMarker* Prev;
+	TrackPositionMarker* Next;
+	int Hash;
+	int blank;
+	float X;
+	float Y;
+	float Z;
+	float W;
+	unsigned short Rotation;
+};
+
+const char* VERSION = "NFSC - FE Loader 3.0";
+
 const float DefaultCarZ = 0.275f;
-float* ShadowZ = (float*)0x007BE7E2;
 const float DefaultShadowZ = -0.25;
 
 Position Positions[10];
-VectorW CustomPlatformSettings;
+D3DXVECTOR4 CustomPlatformPosition;
 std::string CustomPlatformPath;
+bool DrawCustomPlatform = false;
 
 void ToggleReflections(bool enabled)
 {
 	injector::WriteMemory<BYTE>(0x0072E603, enabled ? 0x74 : 0xEB);
 }
 
-auto Game_GetTrackPositionMarker = (TrackPositionMarker * (__cdecl*)(const char* a1, int a2))0x0079DB20;
-auto Game_StringHash = (int(__cdecl*)(const char*))0x471050;
-auto Game_eViewPlatInterface_Render = (int(__thiscall*)(void*, void*, RotPosMatrix*, RotPosMatrix*, int, int, int))0x00729320;
-auto Game_eModel_Init = (void(__thiscall*)(void*, int))0x0055E7E0;
-auto Game_LoadResourceFile = (void(__cdecl*)(const char* path, int type, int, int, int, int, int))0x006B5980;
-auto Game_FindResourceFile = (int* (__cdecl*)(const char* path))0x006A8570;
-auto Game_sub_79AFA0 = (int(__thiscall*)(int, int, int))0x0079AFA0;
+namespace Game
+{
+	float* ShadowZ = (float*)0x007BE7E2;
+	int* GameState = (int*)0x00A99BBC;
+	float* CarZ = (float*)0x009F9AE8;
+	float* DeltaTime = (float*)0x00A99A5C;
+	float* FrontSteerAngle = (float*)0x00A7B668;
+
+	auto GetTrackPositionMarker = (TrackPositionMarker * (__cdecl*)(const char* a1, int a2))0x0079DB20;
+	auto StringHash = (int(__cdecl*)(const char*))0x471050;
+	auto eViewPlatInterface_Render = (int(__thiscall*)(void*, void*, D3DXMATRIX*, D3DXMATRIX*, int, int, int))0x00729320;
+	auto eModel_Init = (void(__thiscall*)(void*, int))0x0055E7E0;
+	auto eModel_GetBoundingBox = (void(__thiscall*)(void*, D3DXVECTOR3*, D3DXVECTOR3*))0x005589C0;
+	auto LoadResourceFile = (void(__cdecl*)(const char* path, int type, int, int, int, int, int))0x006B5980;
+	auto FindResourceFile = (int* (__cdecl*)(const char* path))0x006A8570;
+	auto RenderWorld = (int(__thiscall*)(void*, void*, void*))0x0079AFA0;
+}
 
 bool CustomRotation;
 TrackPositionMarker marker;
@@ -45,48 +84,49 @@ TrackPositionMarker* __cdecl GetTrackPositionMarker(const char* position, int a2
 
 			CustomRotation = pos.Rotation >= 0;
 			ToggleReflections(pos.Reflection);
-			*WorldLighting = pos.WorldLighting;
-			*CarZ = DefaultCarZ - pos.CarZ;
-			*ShadowZ = DefaultShadowZ + pos.CarZ;
+			*Game::CarZ = DefaultCarZ - pos.CarZ;
+			*Game::ShadowZ = DefaultShadowZ + pos.CarZ;
+
+			DrawCustomPlatform = pos.CustomPlatform;
 
 			return &marker;
 		}
 	}
 
-	return Game_GetTrackPositionMarker(position, a2);
+	return Game::GetTrackPositionMarker(position, a2);
 }
 
 void InitGamePositions()
 {
-	Positions[0].IniSection = (char*)"POS_CARLOT_MAZDA";
-	Positions[0].Name = (char*)"CarPosition_CarLot_Mazda";
+	Positions[0].IniSection = "POS_CARLOT_MAZDA";
+	Positions[0].Name = "CarPosition_CarLot_Mazda";
 
-	Positions[1].IniSection = (char*)"POS_CARLOT_EXOTIC";
-	Positions[1].Name = (char*)"CarPosition_CarLot_Exotic";
+	Positions[1].IniSection = "POS_CARLOT_EXOTIC";
+	Positions[1].Name = "CarPosition_CarLot_Exotic";
 
-	Positions[2].IniSection = (char*)"POS_CARLOT_TUNER";
-	Positions[2].Name = (char*)"CarPosition_CarLot_Tuner";
+	Positions[2].IniSection = "POS_CARLOT_TUNER";
+	Positions[2].Name = "CarPosition_CarLot_Tuner";
 
-	Positions[3].IniSection = (char*)"POS_CARLOT_MUSCLE";
-	Positions[3].Name = (char*)"CarPosition_CarLot_Muscle";
+	Positions[3].IniSection = "POS_CARLOT_MUSCLE";
+	Positions[3].Name = "CarPosition_CarLot_Muscle";
 
-	Positions[4].IniSection = (char*)"POS_CARCLASS";
-	Positions[4].Name = (char*)"CarPosition_CarClass";
+	Positions[4].IniSection = "POS_CARCLASS";
+	Positions[4].Name = "CarPosition_CarClass";
 
-	Positions[5].IniSection = (char*)"POS_EXOTIC";
-	Positions[5].Name = (char*)"CarPosition_Exotic";
+	Positions[5].IniSection = "POS_EXOTIC";
+	Positions[5].Name = "CarPosition_Exotic";
 
-	Positions[6].IniSection = (char*)"POS_TUNER";
-	Positions[6].Name = (char*)"CarPosition_Tuner";
+	Positions[6].IniSection = "POS_TUNER";
+	Positions[6].Name = "CarPosition_Tuner";
 
-	Positions[7].IniSection = (char*)"POS_MUSCLE";
-	Positions[7].Name = (char*)"CarPosition_Muscle";
+	Positions[7].IniSection = "POS_MUSCLE";
+	Positions[7].Name = "CarPosition_Muscle";
 
-	Positions[8].IniSection = (char*)"POS_MAIN";
-	Positions[8].Name = (char*)"CarPosition_Main";
+	Positions[8].IniSection = "POS_MAIN";
+	Positions[8].Name = "CarPosition_Main";
 
-	Positions[9].IniSection = (char*)"POS_GENERIC";
-	Positions[9].Name = (char*)"CarPosition_Generic";
+	Positions[9].IniSection = "POS_GENERIC";
+	Positions[9].Name = "CarPosition_Generic";
 }
 
 void __declspec(naked) CarRotationCave2()
@@ -122,9 +162,9 @@ void __declspec(naked) CarRotationCave1()
 }
 
 std::vector<void*> GarageParts;
+void* GarageScrollPart = NULL;
 bool GarageInit = false;
-RotPosMatrix m;
-RotPosMatrix light;
+D3DXMATRIX m;
 
 struct PartEntry
 {
@@ -132,13 +172,45 @@ struct PartEntry
 	int* ptr;
 };
 
-void InitCustomGarage()
+bool StartsWith(char* str, const char* prefix)
+{
+	int slen = strlen(str);
+	int plen = strlen(prefix);
+	if (slen < plen)
+	{
+		return false;
+	}
+
+	for (int i = 0; i < plen; i++)
+	{
+		if (str[i] != prefix[i])
+		{
+			return false;
+		}
+	}
+
+	return true;
+}
+
+float ScrollOffset = 0;
+float ScrollLen = 0;
+float ScrollAngle = 0;
+int ScrollItems;
+D3DXMATRIX* ScrollMatrises;
+float ScrollSpeed;
+bool InitCustomGarage()
 {
 	if (!GarageInit)
 	{
-		int* recource = Game_FindResourceFile(CustomPlatformPath.c_str());
+		int* recource = Game::FindResourceFile(CustomPlatformPath.c_str());
 		if (recource)
 		{
+			D3DXMatrixScaling(&m, 1, 1, 1);
+			m._41 = CustomPlatformPosition.x;
+			m._42 = CustomPlatformPosition.y;
+			m._43 = CustomPlatformPosition.z;
+			m._44 = 1;
+
 			int* geometry = (int*)recource[0xF];
 			int src = 0;
 			while (geometry[src] != 0x134003) src++;
@@ -152,63 +224,117 @@ void InitCustomGarage()
 				char* name = (char*)part.ptr + 0xA0;
 
 				int* model = new int[6];
-				Game_eModel_Init(model, Game_StringHash(name));
-				GarageParts.push_back(model);
+				Game::eModel_Init(model, Game::StringHash(name));
+				if (StartsWith(name, "SCROLL_"))
+				{
+					GarageScrollPart = model;
+					D3DXVECTOR3 a, b;
+					Game::eModel_GetBoundingBox(GarageScrollPart, &a, &b);
+					ScrollLen = abs(a.x) + abs(b.x) - 0.02f;
+					ScrollMatrises = new D3DXMATRIX[ScrollItems * 2];
+				}
+				else
+				{
+					GarageParts.push_back(model);
+				}
 			}
 
-			m.x.x = 1.0f;
-			m.x.y = 0.0f;
-			m.x.z = 0.0f;
-			m.x.w = 0.0f;
-
-			m.y.x = 0.0f;
-			m.y.y = 1.0f;
-			m.y.z = 0.0f;
-			m.y.w = 0.0f;
-
-			m.z.x = 0.0f;
-			m.z.y = 0.0f;
-			m.z.z = 1.0f;
-			m.z.w = 0.0f;
-
-			light = m;
-			light.w.x = 0.0f;
-			light.w.y = 0.0f;
-			light.w.z = 0.0f;
-			light.w.w = 0.0f;
-
-			m.w = CustomPlatformSettings;
 			GarageInit = true;
 		}
 	}
+
+	return GarageInit;
 }
 
-void __stdcall DrawGarage()
+void Render(void* plat, void* model, D3DXMATRIX& matrix)
 {
-	InitCustomGarage();
+	Game::eViewPlatInterface_Render(plat, model, &matrix, 0, 0, 0, 0);
+}
 
-	if (GarageInit)
+void InitScrollMatrices()
+{
+	for (int i = 0; i < ScrollItems; i++)
+	{
+		ScrollMatrises[i] = m;
+		ScrollMatrises[i]._41 += ScrollLen * i;
+	}
+
+	for (int i = ScrollItems, j = 1; i < ScrollItems * 2; i++, j++)
+	{
+		ScrollMatrises[i] = m;
+		ScrollMatrises[i]._41 += -ScrollLen * j;
+	}
+}
+
+void __stdcall DrawGarage(void* plat)
+{
+	if (InitCustomGarage())
 	{
 		for (auto model : GarageParts)
 		{
-			Game_eViewPlatInterface_Render((void*)0x00B4AF90, model, &m, &light, 0, 0, 0);
+			Render(plat, model, m);
+		}
+
+		if (GarageScrollPart)
+		{
+			for (int i = 0; i < ScrollItems * 2; i++)
+			{
+				Render(plat, GarageScrollPart, ScrollMatrises[i]);
+			}
 		}
 	}
 }
 
-void _fastcall DrawGarageHook(int a1, int param, int a2, int a3)
+int BrightDir = 1;
+void Update()
 {
-	if (*GameState == 3)
+	if (GarageScrollPart)
 	{
-		DrawGarage();
+		ScrollAngle += *Game::DeltaTime * ScrollSpeed * 1.5;
+		if (ScrollAngle > 6.28f)
+		{
+			ScrollAngle -= 6.28f;
+		}
+
+		ScrollOffset += *Game::DeltaTime * ScrollSpeed;
+		if (ScrollOffset > ScrollLen)
+		{
+			ScrollOffset -= ScrollLen;
+		}
+
+		InitScrollMatrices();
+
+		for (int i = 0; i < ScrollItems * 2; i++)
+		{
+			ScrollMatrises[i]._41 -= ScrollOffset;
+		}
+	}
+}
+
+void _fastcall DrawGarageMain(void* a1, int, void* a2, void* a3)
+{
+	if (*Game::GameState == 3 && DrawCustomPlatform)
+	{
+		Update();
+		DrawGarage(a1);
 	}
 
-	Game_sub_79AFA0(a1, a2, a3);
+	Game::RenderWorld(a1, a2, a3);
+}
+
+void _fastcall DrawGarageReflection(void* a1, int, void* a2, void* a3)
+{
+	if (*Game::GameState == 3 && DrawCustomPlatform)
+	{
+		DrawGarage(a1);
+	}
+
+	Game::RenderWorld(a1, a2, a3);
 }
 
 void __stdcall GarageLoad()
 {
-	Game_LoadResourceFile(CustomPlatformPath.c_str(), 6, 0, 0, 0, 0, 0);
+	Game::LoadResourceFile(CustomPlatformPath.c_str(), 6, 0, 0, 0, 0, 0);
 }
 
 void __declspec(naked) GarageLoadCave()
@@ -240,6 +366,39 @@ bool IsFileExist(std::string path)
 	return isGood;
 }
 
+void __stdcall RotateFEWheels(D3DXMATRIX* wheel, D3DXMATRIX* brake)
+{
+	if (GarageScrollPart && DrawCustomPlatform)
+	{
+		D3DXMATRIX rot;
+		D3DXMatrixRotationY(&rot, ScrollAngle);
+		D3DXMatrixMultiply(wheel, wheel, &rot);
+	}
+	else
+	{
+		D3DXMATRIX rot;
+		D3DXMatrixRotationZ(&rot, *Game::FrontSteerAngle * 3.14 / 180.0);
+		D3DXMatrixMultiply(wheel, wheel, &rot);
+		D3DXMatrixMultiply(brake, brake, &rot);
+	}
+}
+
+void __declspec(naked) UpdateRenderingCarParametersCave()
+{
+	static constexpr auto cExit = 0x0084F82F;
+	__asm
+	{
+		pushad;
+		push eax;
+		lea eax, [esp + esi + 0xA4];
+		push eax;
+		call RotateFEWheels;
+		popad;
+
+		jmp cExit;
+	}
+}
+
 void Init()
 {
 	InitGamePositions();
@@ -256,12 +415,15 @@ void Init()
 			pos.X = iniReader.ReadFloat(pressetBuf, (char*)"X", 0);
 			pos.Y = iniReader.ReadFloat(pressetBuf, (char*)"Y", 0);
 			pos.Z = iniReader.ReadFloat(pressetBuf, (char*)"Z", 0);
-			pos.CarZ = iniReader.ReadFloat(pressetBuf, (char*)"CarZ", 0);
-			float rotation = iniReader.ReadFloat(pressetBuf, (char*)"CarR", -1);
-			pos.Rotation = -1;
-			pos.Reflection = iniReader.ReadInteger(pressetBuf, (char*)"CarReflection", 1) == 1;
-			pos.WorldLighting = iniReader.ReadFloat(pressetBuf, (char*)"WorldLighting", 2.0f);
 
+			pos.CarZ = iniReader.ReadFloat(pressetBuf, (char*)"CarZ", 0);
+
+			pos.CustomPlatform = iniReader.ReadInteger(pressetBuf, (char*)"CustomPlatform", 0) == 1;
+
+			pos.Reflection = iniReader.ReadInteger(pressetBuf, (char*)"CarReflection", 1) == 1;
+
+			float rotation = iniReader.ReadFloat(pressetBuf, (char*)"CarRotation", -1);
+			pos.Rotation = -1;
 			if (rotation >= 0)
 			{
 				if (rotation > 360.0f)
@@ -281,26 +443,34 @@ void Init()
 	injector::MakeJMP(0x0086A187, CarRotationCave2, true);
 
 	bool loadMapInFE = iniReader.ReadInteger("GENERAL", "LoadMapInFE", 0) == 1;
-
 	if (loadMapInFE)
 	{
-		injector::WriteMemory(0x006B7E48 + 1, "TRACKS\\STREAML5RA.BUN", true);
-		injector::WriteMemory(0x006B7E08 + 1, "TRACKS\\L5RA.BUN", true);
+		injector::WriteMemory(0x006B7E49, "TRACKS\\STREAML5RA.BUN", true);
+		injector::WriteMemory(0x006B7E09, "TRACKS\\L5RA.BUN", true);
 	}
 
 	bool LoadCustomPlatform = iniReader.ReadInteger("GENERAL", "LoadCustomPlatform", 0) == 1;
 	CustomPlatformPath = iniReader.ReadString("CUSTOM_PLATFORM", "Path", std::string(""));
-
-	if (CustomPlatformPath.size() > 0 && LoadCustomPlatform)
+	if (!CustomPlatformPath.empty() && LoadCustomPlatform)
 	{
-		if (IsFileExist(CustomPlatformPath))
+		if (IsFileExist(CustomPlatformPath.c_str()))
 		{
-			injector::MakeCALL(0x0072E63A, DrawGarageHook, true);
+			injector::MakeCALL(0x0072E63A, DrawGarageMain, true);
+			CIniReader hdReflections("NFSCHDReflections.ini");
+			if (hdReflections.ReadInteger("GENERAL", "RealFrontEndReflections", 0) == 1)
+			{
+				injector::MakeCALL(0x0072E535, DrawGarageReflection, true);
+			}
+
 			injector::MakeJMP(0x007B154A, GarageLoadCave, true);
-			CustomPlatformSettings.x = iniReader.ReadFloat((char*)"CUSTOM_PLATFORM", (char*)"X", 0.0f);
-			CustomPlatformSettings.y = iniReader.ReadFloat((char*)"CUSTOM_PLATFORM", (char*)"Y", 0.0f);
-			CustomPlatformSettings.z = iniReader.ReadFloat((char*)"CUSTOM_PLATFORM", (char*)"Z", 0.0f);
-			CustomPlatformSettings.w = 1.0f;
+			injector::MakeJMP(0x0084F80B, UpdateRenderingCarParametersCave, true);
+			CustomPlatformPosition.x = iniReader.ReadFloat("CUSTOM_PLATFORM", "X", 0.0f);
+			CustomPlatformPosition.y = iniReader.ReadFloat("CUSTOM_PLATFORM", "Y", 0.0f);
+			CustomPlatformPosition.z = iniReader.ReadFloat("CUSTOM_PLATFORM", "Z", 0.0f);
+			CustomPlatformPosition.w = 1.0f;
+
+			ScrollSpeed = iniReader.ReadFloat("CUSTOM_PLATFORM", "ScrollSpeed", 10.0f);
+			ScrollItems = iniReader.ReadInteger("CUSTOM_PLATFORM", "ScrollItems", 25);
 		}
 		else
 		{
