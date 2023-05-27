@@ -67,6 +67,8 @@ namespace Game
 	auto LoadResourceFile = (void(__cdecl*)(const char* path, int type, int, int, int, int, int))0x006B5980;
 	auto FindResourceFile = (int* (__cdecl*)(const char* path))0x006A8570;
 	auto RenderWorld = (int(__thiscall*)(void*, void*, void*))0x0079AFA0;
+	auto FeCustomizeParts_Ctor = (void(__thiscall*)(void*, void*))0x0085A5A0;
+	auto FeCustomizeParts_Dtor = (void(__thiscall*)(void*))0x0083FF50;
 }
 
 bool CustomRotation;
@@ -197,7 +199,7 @@ float ScrollLen = 0;
 float ScrollAngle = 0;
 int ScrollItems;
 D3DXMATRIX* ScrollMatrises;
-float ScrollSpeed;
+float ScrollSpeed, TargetScrollSpeed, ScrollSpeedMin, ScrollSpeedMax;
 bool InitCustomGarage()
 {
 	if (!GarageInit)
@@ -285,7 +287,27 @@ void __stdcall DrawGarage(void* plat)
 	}
 }
 
-int BrightDir = 1;
+void MoveTowards(float& a, float b, float step)
+{
+	if (a < b)
+	{
+		a += step;
+		if (a > b)
+		{
+			a = b;
+		}
+	}
+
+	if (a > b)
+	{
+		a -= step;
+		if (a < b)
+		{
+			a = b;
+		}
+	}
+}
+
 void Update()
 {
 	if (GarageScrollPart)
@@ -308,6 +330,8 @@ void Update()
 		{
 			ScrollMatrises[i]._41 -= ScrollOffset;
 		}
+
+		MoveTowards(ScrollSpeed, TargetScrollSpeed, *Game::DeltaTime * 5);
 	}
 }
 
@@ -366,7 +390,7 @@ bool IsFileExist(std::string path)
 	return isGood;
 }
 
-void __stdcall RotateFEWheels(D3DXMATRIX* wheel, D3DXMATRIX* brake)
+void __stdcall RotateFEWheels(int num, D3DXMATRIX* wheel, D3DXMATRIX* brake)
 {
 	if (GarageScrollPart && DrawCustomPlatform)
 	{
@@ -374,7 +398,7 @@ void __stdcall RotateFEWheels(D3DXMATRIX* wheel, D3DXMATRIX* brake)
 		D3DXMatrixRotationY(&rot, ScrollAngle);
 		D3DXMatrixMultiply(wheel, wheel, &rot);
 	}
-	else
+	else if (num <= 0x40)
 	{
 		D3DXMATRIX rot;
 		D3DXMatrixRotationZ(&rot, *Game::FrontSteerAngle * 3.14 / 180.0);
@@ -392,11 +416,24 @@ void __declspec(naked) UpdateRenderingCarParametersCave()
 		push eax;
 		lea eax, [esp + esi + 0xA4];
 		push eax;
+		push esi;
 		call RotateFEWheels;
 		popad;
 
 		jmp cExit;
 	}
+}
+
+void __fastcall FeCustomizeParts_Ctor(void* _this, int, void* data)
+{
+	TargetScrollSpeed = ScrollSpeedMin;
+	Game::FeCustomizeParts_Ctor(_this, data);
+}
+
+void __fastcall FeCustomizeParts_Dtor(void* _this)
+{
+	TargetScrollSpeed = ScrollSpeedMax;
+	Game::FeCustomizeParts_Dtor(_this);
 }
 
 void Init()
@@ -409,20 +446,20 @@ void Init()
 		pos.Presset = iniReader.ReadInteger(pos.IniSection, "Presset", -1);
 		if (pos.Presset >= 0)
 		{
-			char pressetBuf[24];
-			sprintf(pressetBuf, "PRESSET_%d", pos.Presset);
+			char PressetIni[24];
+			sprintf(PressetIni, "PRESSET_%d", pos.Presset);
 
-			pos.X = iniReader.ReadFloat(pressetBuf, (char*)"X", 0);
-			pos.Y = iniReader.ReadFloat(pressetBuf, (char*)"Y", 0);
-			pos.Z = iniReader.ReadFloat(pressetBuf, (char*)"Z", 0);
+			pos.X = iniReader.ReadFloat(PressetIni, (char*)"X", 0);
+			pos.Y = iniReader.ReadFloat(PressetIni, (char*)"Y", 0);
+			pos.Z = iniReader.ReadFloat(PressetIni, (char*)"Z", 0);
 
-			pos.CarZ = iniReader.ReadFloat(pressetBuf, (char*)"CarZ", 0);
+			pos.CarZ = iniReader.ReadFloat(PressetIni, (char*)"CarZ", 0);
 
-			pos.CustomPlatform = iniReader.ReadInteger(pressetBuf, (char*)"CustomPlatform", 0) == 1;
+			pos.CustomPlatform = iniReader.ReadInteger(PressetIni, (char*)"CustomPlatform", 0) == 1;
 
-			pos.Reflection = iniReader.ReadInteger(pressetBuf, (char*)"CarReflection", 1) == 1;
+			pos.Reflection = iniReader.ReadInteger(PressetIni, (char*)"CarReflection", 1) == 1;
 
-			float rotation = iniReader.ReadFloat(pressetBuf, (char*)"CarRotation", -1);
+			float rotation = iniReader.ReadFloat(PressetIni, (char*)"CarRotation", -1);
 			pos.Rotation = -1;
 			if (rotation >= 0)
 			{
@@ -464,13 +501,22 @@ void Init()
 
 			injector::MakeJMP(0x007B154A, GarageLoadCave, true);
 			injector::MakeJMP(0x0084F80B, UpdateRenderingCarParametersCave, true);
+
+			injector::MakeCALL(0x005748D9, FeCustomizeParts_Ctor);
+			injector::MakeCALL(0x00850BC3, FeCustomizeParts_Dtor);
+
 			CustomPlatformPosition.x = iniReader.ReadFloat("CUSTOM_PLATFORM", "X", 0.0f);
 			CustomPlatformPosition.y = iniReader.ReadFloat("CUSTOM_PLATFORM", "Y", 0.0f);
 			CustomPlatformPosition.z = iniReader.ReadFloat("CUSTOM_PLATFORM", "Z", 0.0f);
 			CustomPlatformPosition.w = 1.0f;
 
-			ScrollSpeed = iniReader.ReadFloat("CUSTOM_PLATFORM", "ScrollSpeed", 10.0f);
 			ScrollItems = iniReader.ReadInteger("CUSTOM_PLATFORM", "ScrollItems", 25);
+
+			ScrollSpeedMin = iniReader.ReadFloat("CUSTOM_PLATFORM", "ScrollSpeedMin", 1.0f);
+			ScrollSpeedMax = iniReader.ReadFloat("CUSTOM_PLATFORM", "ScrollSpeedMax", 10.0f);
+
+			ScrollSpeed = ScrollSpeedMax;
+			TargetScrollSpeed = ScrollSpeedMax;
 		}
 		else
 		{
