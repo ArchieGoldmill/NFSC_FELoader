@@ -2,15 +2,11 @@
 #include <string>
 #include <D3dx9math.h>
 #include <vector>
-#include <windows.h>
 #include "IniReader/IniReader.h"
 #include "Injector/injector.hpp"
 
-
-#pragma comment(lib, "winmm.lib")
 #pragma comment(lib, "d3d9.lib")
 #pragma comment(lib, "d3dx9.lib")
-
 
 struct Position
 {
@@ -40,7 +36,7 @@ struct TrackPositionMarker
 	unsigned short Rotation;
 };
 
-const char* VERSION = "NFSC - FE Loader 3.0";
+const char* VERSION = "NFSC - FE Loader 3.1";
 const float DefaultCarZ = 0.275f;
 const float DefaultShadowZ = -0.25;
 
@@ -49,9 +45,10 @@ D3DXVECTOR4 CustomPlatformPosition;
 std::string CustomPlatformPath;
 bool DrawCustomPlatform = false;
 
+float GlobalRotationSpeedContant = 0;
+float GlobalRotationSpeedContantFast = 0;
 float DiscRotationAngle = 0.0f;
-float CarRotationSpeed = 40.0f;
-float CarRotationReturningSpeed = 68.0f;
+float CarRotationSpeed = 57.457f; // DON'T EDIT THIS!!
 int CarRotationSendSpeed = 0;
 bool ReturnDisc = 0;
 int HK_Left, HK_Right;
@@ -259,11 +256,10 @@ bool InitCustomGarage()
 					ScrollLen = abs(a.x) + abs(b.x) - 0.02f;
 					ScrollMatrises = new D3DXMATRIX[ScrollItems * 2];
 				}
-				if (StartsWith(name, "DISC01"))
+				if (StartsWith(name, "DISC"))
 				{
 					GarageDiscPart = model;
 					RotateMatrises = new D3DXMATRIX;
-
 				}
 				else
 				{
@@ -316,9 +312,7 @@ void __stdcall DrawGarage(void* plat)
 		}
 		if (GarageDiscPart)
 		{
-
 			Render(plat, GarageDiscPart, *RotateMatrises);
-
 		}
 
 	}
@@ -346,7 +340,7 @@ void MoveTowards(float& a, float b, float step)
 }
 
 void InitDisc() {
-	// a bit messy part with moving disc part to 0 coordinates, rotating it and returning it back
+	// a bit messy part with moving disc part to 0 coordinates, rotating it and placing it back
 	D3DXMATRIX rotationMatrix;
 	*RotateMatrises = m;
 	RotateMatrises[0]._41 -= CustomPlatformPosition.x;
@@ -387,63 +381,61 @@ void Update()
 
 
 	if (GarageDiscPart) {
-		//#define SOUND_FILE_PATH L"G:/Programms/Need for Speed Carbon/scripts/3.wav"
 
 		InitDisc();
 		if (ReturnDisc == false) {
 			if (GetAsyncKeyState(HK_Left))
 			{
-				DiscRotationAngle -= *Game::DeltaTime * 0.7f;
-				//PlaySound(SOUND_FILE_PATH, NULL, SND_ASYNC | SND_NOSTOP | SND_NODEFAULT);
-				CarRotationSendSpeed = -1 * CarRotationSpeed / 360.0f * 65535.0f * *Game::DeltaTime;
+				DiscRotationAngle -= *Game::DeltaTime * GlobalRotationSpeedContant;
+				CarRotationSendSpeed = -1 * CarRotationSpeed * GlobalRotationSpeedContant / 360.0f * 65535.0f * *Game::DeltaTime;
+
 			}
 			else if (GetAsyncKeyState(HK_Right))
 			{
-				DiscRotationAngle += *Game::DeltaTime * 0.7f;
-				//PlaySound(SOUND_FILE_PATH, NULL, SND_ASYNC | SND_NOSTOP | SND_NODEFAULT);
-				CarRotationSendSpeed = CarRotationSpeed / 360.0f * 65535.0f * *Game::DeltaTime;
+				DiscRotationAngle += *Game::DeltaTime * GlobalRotationSpeedContant;
+				CarRotationSendSpeed = CarRotationSpeed * GlobalRotationSpeedContant / 360.0f * 65535.0f * *Game::DeltaTime;
 			}
 			else
 			{
-				//PlaySound(NULL, NULL, SND_FILENAME | SND_ASYNC);
 				CarRotationSendSpeed = 0;
 			}
-
 
 		}
 		else
 		{
-			float rotationSpeed = 1.2f;
+			// make disc rotation be minimal value
+			if (DiscRotationAngle > 3.14f)
+			{
+				DiscRotationAngle = DiscRotationAngle - floor(DiscRotationAngle / 3.1415) * 3.1415f - 3.1415f;
+			}
+			else if (DiscRotationAngle < -3.14f)
+			{
+				DiscRotationAngle = DiscRotationAngle + floor(-DiscRotationAngle / 3.1415) * 3.1415f + 3.1415f;
+			}
+			// return back
 			if (DiscRotationAngle > 0.0f)
 			{
-				DiscRotationAngle -= *Game::DeltaTime * rotationSpeed;
-				CarRotationSendSpeed = -1 * CarRotationReturningSpeed / 360.0f * 65535.0f * *Game::DeltaTime;
-				//PlaySound(SOUND_FILE_PATH, NULL, SND_ASYNC | SND_NOSTOP | SND_NODEFAULT);
+				DiscRotationAngle -= *Game::DeltaTime * GlobalRotationSpeedContantFast;
+				CarRotationSendSpeed = -1 * CarRotationSpeed * GlobalRotationSpeedContantFast / 360.0f * 65535.0f * *Game::DeltaTime;
 
 				if (DiscRotationAngle < 0.0f)
 				{
 					DiscRotationAngle = 0.0f;
-					CarRotationSendSpeed = 0 / 360.0f * 65535.0f * *Game::DeltaTime;
-					//PlaySound(NULL, NULL, SND_FILENAME | SND_ASYNC);
+					CarRotationSendSpeed = 0;
 				}
 			}
 			else if (DiscRotationAngle < 0.0f)
 			{
-				DiscRotationAngle += *Game::DeltaTime * rotationSpeed;
-				CarRotationSendSpeed = CarRotationReturningSpeed / 360.0f * 65535.0f * *Game::DeltaTime;
-				//PlaySound(SOUND_FILE_PATH, NULL, SND_ASYNC | SND_NOSTOP | SND_NODEFAULT);
+				DiscRotationAngle += *Game::DeltaTime * GlobalRotationSpeedContantFast;
+				CarRotationSendSpeed = CarRotationSpeed * GlobalRotationSpeedContantFast / 360.0f * 65535.0f * *Game::DeltaTime;
 				if (DiscRotationAngle > 0.0f)
 				{
 					DiscRotationAngle = 0.0f;
-					CarRotationSendSpeed = 0 / 360.0f * 65535.0f * *Game::DeltaTime;
-					//PlaySound(NULL, NULL, SND_FILENAME | SND_ASYNC);
+					CarRotationSendSpeed = 0;
 				}
 			}
-
 		}
-
 	}
-
 }
 
 
@@ -599,6 +591,9 @@ void Init()
 
 	HK_Left = iniReader.ReadInteger("GENERAL", "RotateLeftKey", 0);
 	HK_Right = iniReader.ReadInteger("GENERAL", "RotateRightKey", 0);
+
+	GlobalRotationSpeedContant = iniReader.ReadFloat("GENERAL", "DiscRotatingSpeed", 0);
+	GlobalRotationSpeedContantFast = iniReader.ReadFloat("GENERAL", "DiscReturningSpeed", 0);
 
 	bool loadMapInFE = iniReader.ReadInteger("GENERAL", "LoadMapInFE", 0) == 1;
 	if (loadMapInFE)
