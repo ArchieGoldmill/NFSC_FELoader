@@ -4,7 +4,7 @@ Description:
 This mod allows to control car position and rotation on front end screens.
 
 How to install:
-Run Binary in User mode and select Install.end. Follow the instructions.
+Drop everything from Install forlder to your game folder.
 
 How to use:
 1. Create Pressets in ini file(default ones already exist, use them as an example).
