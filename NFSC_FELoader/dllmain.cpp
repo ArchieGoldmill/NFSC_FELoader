@@ -499,6 +499,8 @@ void Init()
 				injector::MakeCALL(0x0072E535, DrawGarageReflection, true);
 			}
 
+			injector::MakeCALL(0x0072D6BB, DrawGarageReflection, true);
+
 			injector::MakeJMP(0x007B154A, GarageLoadCave, true);
 			injector::MakeJMP(0x0084F80B, UpdateRenderingCarParametersCave, true);
 
